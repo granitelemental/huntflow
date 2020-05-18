@@ -9,7 +9,7 @@ python3 edit_base.py --ACCESS_TOKEN <access_token> --APPLICANTS <applicants_file
 * APPLICANTS: path to xlsx file with applicants. Default - "./Тестовое задание/Тестовая база.xlsx"
 * RESUMES_PATH: path to folder containing folders with resumes. Default - "./Тестовое задание"
 
-* API_ENDPOINT is hardcoded in script: "https://dev-100-api.huntflow.ru"
+* API_ENDPOINT is hardcoded in the script: "https://dev-100-api.huntflow.ru"
 
 
 
