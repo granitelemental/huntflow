@@ -1,8 +1,9 @@
-# Usage
+## Usage
 
 python3 edit_base.py --ACCESS_TOKEN <access_token> --APPLICANTS <applicants_file> --RESUMES_PATH <resumes_path>
 
 
+## Parameters
 
 ACCESS_TOKEN: access token
 APPLICANTS: path to xlsx file with applicants. Default - "./Тестовое задание/Тестовая база.xlsx"
@@ -10,7 +11,7 @@ RESUMES_PATH: path to folder containing folders with resumes. Default - "./Те�
 
 
 
-Возникшие проблемы: 
+## Возникшие проблемы: 
 
 1) В названиях резюме буква "й" не соответствует таковой в таблице с applicants. Я заменила ее в названиях вручную.
 
