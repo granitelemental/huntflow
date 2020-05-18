@@ -1,20 +1,21 @@
-import argparse
-import pandas as pd 
-import requests
-import json
 import glob
+import json
 import os
-import sys
 import re
+import sys
 from shutil import copyfile
-import magic
 from functools import reduce
 
-api_endpoint = "https://dev-100-api.huntflow.ru"
+import argparse
+import magic
+import pandas as pd 
+import requests
+
+API_ENDPOINT = "https://dev-100-api.huntflow.ru"
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    "--applicants", 
+    "--APPLICANTS", 
     help="xlsx with applicants list", 
     nargs='?',
     const=1,
@@ -22,7 +23,7 @@ parser.add_argument(
     type=str
     )
 parser.add_argument(
-    "--resumes", 
+    "--RESUMES_PATH", 
     help="path to resumes", 
     nargs='?',
     const=1,
@@ -30,17 +31,20 @@ parser.add_argument(
     type=str
     )
 parser.add_argument(
-    "--access_token", 
-    help="access_token", 
+    "--ACCESS_TOKEN", 
+    help="ACCESS_TOKEN", 
     type=str
     )
 
 args = parser.parse_args()
-access_token = args.access_token
-resumes_path = args.resumes
-account_id = requests.get(
-    url=f"{api_endpoint}/accounts", 
-    headers={"Authorization": f"Bearer {access_token}"}
+
+ACCESS_TOKEN = args.ACCESS_TOKEN
+DEFAULT_HEADERS = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+RESUMES_PATH = args.RESUMES_PATH
+APPLICANTS = pd.read_excel(args.APPLICANTS)
+ACCOUNT_ID = requests.get(
+    url=f"{API_ENDPOINT}/accounts", 
+    headers = DEFAULT_HEADERS
     ).json().get("items")[0].get("id")
 
 def check_response_status(fn):
@@ -62,17 +66,15 @@ def upload_file(path, file):
     copyfile(path + file, file)
     mime = magic.Magic(mime=True)
     files = {"file": (file, open(f"./{file}", "rb"), mime.from_file(file))}
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "X-File-Parse": "true"
-    }
-    url = f"{api_endpoint}/account/{account_id}/upload"
+    headers = {**DEFAULT_HEADERS, "X-File-Parse": "true"}
+
+    url = f"{API_ENDPOINT}/account/{ACCOUNT_ID}/upload"
     response = requests.post(url=url, files=files, headers=headers) 
     os.remove(file)
     return response
 
 def create_applicant_mapping(resume):
-    applicant_mapping = json.dumps({ 
+    applicant_mapping = { 
         "last_name": deep_get(resume, "fields.name.last", ""), 
         "first_name": deep_get(resume, "fields.name.first", ""), 
         "middle_name": deep_get(resume, "fields.name.middle", ""), 
@@ -100,15 +102,15 @@ def create_applicant_mapping(resume):
                 "account_source": resume.get("account_source", None) # откуда брать?
             }
         ]
-    }) 
+    }
     return applicant_mapping
 
 @check_response_status
 def upload_applicant(resume):
-    data = create_applicant_mapping(resume)
-    headers={"Authorization": f"Bearer {access_token}"}
-    url = f"{api_endpoint}/account/{account_id}/applicants"
-    response = requests.post(url=url, headers=headers, data=data)
+    json_data = create_applicant_mapping(resume)
+    headers = DEFAULT_HEADERS
+    url = f"{API_ENDPOINT}/account/{ACCOUNT_ID}/applicants"
+    response = requests.post(url=url, headers=headers, json=json_data)
     return response
 
 @check_response_status
@@ -116,12 +118,12 @@ def upload_application(applicant, file_id=None):
     name = applicant["ФИО"].strip().split(" ")
     comment = applicant["Комментарий"].strip()
     status = [st["id"] for st in application_statuses if st["ru"] == applicant["Статус"].strip()][0]
-    headers={"Authorization": f"Bearer {access_token}"}
-    response = requests.get(f"{api_endpoint}/account/{account_id}/vacancies", headers=headers).json()
+    headers = DEFAULT_HEADERS
+    response = requests.get(f"{API_ENDPOINT}/account/{ACCOUNT_ID}/vacancies", headers=headers).json()
     vacancy = [res for res in response["items"] if res["position"] == applicant["Должность"].strip()][0]["id"]
-    response = requests.get(f"{api_endpoint}/account/{account_id}/applicants", headers=headers).json()
+    response = requests.get(f"{API_ENDPOINT}/account/{ACCOUNT_ID}/applicants", headers=headers).json()
     applicant_id = [res for res in response["items"] if (res["last_name"] == name[0]) and (res["first_name"] == name[1])][0]["id"]
-    data = json.dumps({
+    json_data = {
         "vacancy": vacancy,
         "status": status,
         "comment": comment,
@@ -129,12 +131,14 @@ def upload_application(applicant, file_id=None):
             {"id": file_id}
         ],
         "rejection_reason": None
-    })
-    url = f"{api_endpoint}/account/{account_id}/applicants/{applicant_id}/vacancy"
-    headers={"Authorization": f"Bearer {access_token}"}
-    response = requests.post(url=url, data=data, headers=headers)
+    }
+    url = f"{API_ENDPOINT}/account/{ACCOUNT_ID}/applicants/{applicant_id}/vacancy"
+    headers = DEFAULT_HEADERS
+    response = requests.post(url=url, json=json_data, headers=headers)
     return response
 
+# По-хорошему, не нужно хранить id в скрипте, нужно доставать их из базы. 
+# В скрипте нужно хранить только отображание русских названий в английские, но так как данных мало, я решила оставить так
 application_statuses = [
     {"id": 41, "name": "New Lead", "type": "user", "removed": None, "order": 1, "ru": None},  
     {"id": 42, "name": "Submitted", "type": "user", "removed": None, "order": 2, "ru": None}, 
@@ -148,25 +152,22 @@ application_statuses = [
     {"id": 50, "name": "Declined", "type": "trash", "removed": None, "order": 9999,  "ru": "Отказ"}]
 
 
-# reading applicants from xslx
-applicants = pd.read_excel(args.applicants)
-
-if os.path.exists("loc.txt"):
-    with open("loc.txt", "r") as f:
+if os.path.exists("lock.txt"):
+    with open("lock.txt", "r") as f:
         start = int(f.readline())
         confirm = input(f"Прошлый раз скрипт упал обрабатывая {start}-го кандидата из списка. Продолжить выполнение с {start}-й строки файла? (Y/n) \n")
         if confirm.lower() not in ["y", ""]:
-            os.remove("loc.txt")
+            os.remove("lock.txt")
             start = 0
 else:
     start = 0
 
-for i in range(start, applicants.shape[0]):
+for i in range(start, APPLICANTS.shape[0]):
     try:
-        applicant = applicants.iloc[i]
+        applicant = APPLICANTS.iloc[i]
         print("\n", applicant["ФИО"])
         # uploading applicant's resume file. 
-        path = f"Тестовое задание/{applicant['Должность'].strip()}/"
+        path = f"{RESUMES_PATH}/{applicant['Должность'].strip()}/"
         file = os.path.basename(glob.glob(path + f"{applicant['ФИО'].strip()}*")[0]) # Почему-то в названии файлов резюме какая-то не та "й". Решила не заниматься в этом скрипте нормализацией данных и просто поменяла на нормальную.
         response = upload_file(path, file)  
         resume = response.json()
@@ -180,13 +181,13 @@ for i in range(start, applicants.shape[0]):
 
     except Exception as e:
         print(e)
-        with open("loc.txt", "w") as f:
+        with open("lock.txt", "w") as f:
             print(i, file=f)
-            print(f"created file loc.txt with i = {i}")
+            print(f"created file lock.txt with i = {i}")
         sys.exit(1)
 
-if os.path.exists("loc.txt"):
-    os.remove("loc.txt")
+if os.path.exists("lock.txt"):
+    os.remove("lock.txt")
 
 
 
